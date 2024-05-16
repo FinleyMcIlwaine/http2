@@ -44,7 +44,7 @@ fromContext ctx@Context{..} =
         , writeOutputQ = enqueueOutput outputQ
         , workerCleanup = \strm -> do
             closed ctx strm Killed
-            let frame = resetFrame InternalError $ streamNumber strm
+            frame <- resetFrame InternalError $ streamNumber strm
             enqueueControl controlQ $ CFrames Nothing [frame]
         , -- Peer SETTINGS_ENABLE_PUSH
           isPushable = enablePush <$> readIORef peerSettings

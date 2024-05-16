@@ -124,6 +124,5 @@ runH2 conf ctx mgr = do
 
 -- connClose must not be called here since Run:fork calls it
 goaway :: Config -> ErrorCode -> ByteString -> IO ()
-goaway Config{..} etype debugmsg = confSendAll bytestream
-  where
-    bytestream = goawayFrame 0 etype debugmsg
+goaway Config{..} etype debugmsg =
+    confSendAll =<< goawayFrame 0 etype debugmsg

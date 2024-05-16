@@ -90,7 +90,7 @@ run cconf@ClientConfig{..} conf client = do
     runClient ctx mgr = do
         x <- client (clientCore ctx mgr) $ aux ctx
         waitCounter0 mgr
-        let frame = goawayFrame 0 NoError "graceful closing"
+        frame <- goawayFrame 0 NoError "graceful closing"
         mvar <- newMVar ()
         enqueueControl (controlQ ctx) $ CGoaway frame mvar
         takeMVar mvar
@@ -227,8 +227,8 @@ sendStreaming Context{..} mgr req sid newstrm strmbdy = do
 exchangeSettings :: Context -> IO ()
 exchangeSettings Context{..} = do
     connRxWS <- rxfBufSize <$> readIORef rxFlow
-    let frames = makeNegotiationFrames mySettings connRxWS
-        setframe = CFrames Nothing (connectionPreface : frames)
+    frames <- makeNegotiationFrames mySettings connRxWS
+    let setframe = CFrames Nothing (connectionPreface : frames)
     writeIORef myFirstSettings True
     enqueueControl controlQ setframe
 

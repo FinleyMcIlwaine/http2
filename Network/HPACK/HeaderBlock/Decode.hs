@@ -14,9 +14,8 @@ module Network.HPACK.HeaderBlock.Decode (
     decodeSimple, -- testing
 ) where
 
-import Data.Array.Base (unsafeRead, unsafeWrite)
+import Data.Array.Base (readArray, writeArray, freeze)
 import qualified Data.Array.IO as IOA
-import qualified Data.Array.Unsafe as Unsafe
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import Data.Char (isUpper)
@@ -134,7 +133,7 @@ decodeSophisticated decTokenHeader rbuf = do
     -- using maxTokenIx to reduce condition
     arr <- IOA.newArray (minTokenIx, maxTokenIx) Nothing
     tvs <- pseudoNormal arr
-    tbl <- Unsafe.unsafeFreeze arr
+    tbl <- freeze arr
     return (tvs, tbl)
   where
     pseudoNormal :: IOA.IOArray Int (Maybe FieldValue) -> IO TokenHeaderList
@@ -148,19 +147,19 @@ decodeSophisticated decTokenHeader rbuf = do
                     tv@(Token{..}, v) <- decTokenHeader w rbuf
                     if isPseudo
                         then do
-                            mx <- unsafeRead arr tokenIx
+                            mx <- readArray arr tokenIx
                             -- duplicated
                             when (isJust mx) $ throwIO IllegalHeaderName
                             -- unknown
                             when (isMaxTokenIx tokenIx) $ throwIO IllegalHeaderName
-                            unsafeWrite arr tokenIx (Just v)
+                            writeArray arr tokenIx (Just v)
                             pseudo
                         else do
                             -- 0-Length Headers Leak - CVE-2019-9516
                             when (tokenKey == "") $ throwIO IllegalHeaderName
                             when (isMaxTokenIx tokenIx && B8.any isUpper (original tokenKey)) $
                                 throwIO IllegalHeaderName
-                            unsafeWrite arr tokenIx (Just v)
+                            writeArray arr tokenIx (Just v)
                             if isCookieTokenIx tokenIx
                                 then normal 0 empty (empty << v)
                                 else normal 0 (empty << tv) empty
@@ -178,7 +177,7 @@ decodeSophisticated decTokenHeader rbuf = do
                         when (tokenKey == "") $ throwIO IllegalHeaderName
                         when (isMaxTokenIx tokenIx && B8.any isUpper (original tokenKey)) $
                             throwIO IllegalHeaderName
-                        unsafeWrite arr tokenIx (Just v)
+                        writeArray arr tokenIx (Just v)
                         if isCookieTokenIx tokenIx
                             then normal (n + 1) builder (cookie << v)
                             else normal (n + 1) (builder << tv) cookie
@@ -190,7 +189,7 @@ decodeSophisticated decTokenHeader rbuf = do
                             else do
                                 let v = BS.intercalate "; " cook
                                     tvs = (tokenCookie, v) : tvs0
-                                unsafeWrite arr cookieTokenIx (Just v)
+                                writeArray arr cookieTokenIx (Just v)
                                 return tvs
 
 toTokenHeader :: DynamicTable -> Word8 -> ReadBuffer -> IO TokenHeader
@@ -328,7 +327,7 @@ toTokenHeaderTable :: [Header] -> IO TokenHeaderTable
 toTokenHeaderTable kvs = do
     arr <- IOA.newArray (minTokenIx, maxTokenIx) Nothing
     tvs <- conv arr
-    tbl <- Unsafe.unsafeFreeze arr
+    tbl <- freeze arr
     return (tvs, tbl)
   where
     conv :: IOA.IOArray Int (Maybe FieldValue) -> IO TokenHeaderList
@@ -338,7 +337,7 @@ toTokenHeaderTable kvs = do
         go [] builder = return $ run builder
         go ((k, v) : xs) builder = do
             let t = toToken (foldedCase k)
-            unsafeWrite arr (tokenIx t) (Just v)
+            writeArray arr (tokenIx t) (Just v)
             let tv = (t, v)
                 builder' = builder << tv
             go xs builder'

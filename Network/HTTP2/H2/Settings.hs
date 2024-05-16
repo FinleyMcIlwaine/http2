@@ -137,14 +137,15 @@ toSettingsList s s0 =
 
 ----------------------------------------------------------------
 
-makeNegotiationFrames :: Settings -> WindowSize -> [ByteString]
-makeNegotiationFrames settings connWindowSize = frame1 : frames
+makeNegotiationFrames :: Settings -> WindowSize -> IO [ByteString]
+makeNegotiationFrames settings connWindowSize = do
+    frame1 <- settingsFrame id alist
+    frames <-
+        if connWindowSize /= defaultWindowSize
+            then (:[]) <$> windowUpdateFrame 0 (connWindowSize - defaultWindowSize)
+            else return []
+    return $ frame1 : frames
   where
     alist = toSettingsList settings baseSettings
-    frame1 = settingsFrame id alist
-    frames =
-        if connWindowSize /= defaultWindowSize
-            then [windowUpdateFrame 0 (connWindowSize - defaultWindowSize)]
-            else []
 
 ----------------------------------------------------------------

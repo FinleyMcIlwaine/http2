@@ -7,7 +7,7 @@ module Network.HPACK.Table.Static (
 ) where
 
 import Data.Array (Array, listArray)
-import Data.Array.Base (unsafeAt)
+import Data.Array.Base ((!))
 import Network.HPACK.Table.Entry
 import Network.HTTP.Types (Header)
 
@@ -28,7 +28,7 @@ staticTableSize = length staticTableList
 -- >>> toStaticEntry 50
 -- Entry 37 (Token {tokenIx = 40, shouldBeIndexed = True, isPseudo = False, tokenKey = "Range"}) ""
 toStaticEntry :: Index -> Entry
-toStaticEntry sidx = staticTable `unsafeAt` (sidx - 1)
+toStaticEntry sidx = staticTable ! sidx
 
 -- | Pre-defined static table.
 staticTable :: Array Index Entry

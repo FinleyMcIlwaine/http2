@@ -10,7 +10,7 @@ module Network.HPACK.Huffman.Decode (
 ) where
 
 import Data.Array (Array, listArray)
-import Data.Array.Base (unsafeAt)
+import Data.Array.Base ((!))
 import qualified Data.ByteString as BS
 import Network.ByteOrder
 import UnliftIO.Exception (throwIO)
@@ -45,7 +45,7 @@ data WayStep = WayStep (Maybe Int) (Array Word8 Pin)
 type Way256 = Array Word8 WayStep
 
 next :: WayStep -> Word8 -> Pin
-next (WayStep _ a16) w = a16 `unsafeAt` fromIntegral w
+next (WayStep _ a16) w = a16 ! fromIntegral w
 
 ----------------------------------------------------------------
 
@@ -66,7 +66,7 @@ decodeH gcbuf bufsiz rbuf len = withForeignPtr gcbuf $ \buf -> do
 
 -- | Low devel Huffman decoding in a write buffer.
 decH :: WriteBuffer -> ReadBuffer -> Int -> IO ()
-decH wbuf rbuf len = go len (way256 `unsafeAt` 0)
+decH wbuf rbuf len = go len (way256 ! 0)
   where
     go 0 way0 = case way0 of
         WayStep Nothing _ -> throwIO IllegalEos
@@ -79,14 +79,14 @@ decH wbuf rbuf len = go len (way256 `unsafeAt` 0)
         go (n - 1) way
     doit way w = case next way w of
         EndOfString -> throwIO EosInTheMiddle
-        Forward n -> return $ way256 `unsafeAt` fromIntegral n
+        Forward n -> return $ way256 ! fromIntegral n
         GoBack n v -> do
             write8 wbuf v
-            return $ way256 `unsafeAt` fromIntegral n
+            return $ way256 ! fromIntegral n
         GoBack2 n v1 v2 -> do
             write8 wbuf v1
             write8 wbuf v2
-            return $ way256 `unsafeAt` fromIntegral n
+            return $ way256 ! fromIntegral n
 
 -- | Huffman decoding with a temporary buffer whose size is 4096.
 decodeHuffman :: ByteString -> IO ByteString

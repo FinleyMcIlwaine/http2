@@ -71,11 +71,11 @@ informWindowUpdate _ _ 0 = return ()
 informWindowUpdate Context{controlQ, rxFlow} Stream{streamNumber, streamRxFlow} len = do
     mxc <- atomicModifyIORef rxFlow $ maybeOpenRxWindow len FCTWindowUpdate
     forM_ mxc $ \ws -> do
-        let frame = windowUpdateFrame 0 ws
-            cframe = CFrames Nothing [frame]
+        frame <- windowUpdateFrame 0 ws
+        let cframe = CFrames Nothing [frame]
         enqueueControl controlQ cframe
     mxs <- atomicModifyIORef streamRxFlow $ maybeOpenRxWindow len FCTWindowUpdate
     forM_ mxs $ \ws -> do
-        let frame = windowUpdateFrame streamNumber ws
-            cframe = CFrames Nothing [frame]
+        frame <- windowUpdateFrame streamNumber ws
+        let cframe = CFrames Nothing [frame]
         enqueueControl controlQ cframe

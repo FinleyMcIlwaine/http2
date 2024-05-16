@@ -62,7 +62,8 @@ frameReceiver ctx@Context{..} conf@Config{..} = loop 0 `E.catch` sendGoaway
             if BS.null hd
                 then enqueueControl controlQ $ CFinish ConnectionIsClosed
                 else do
-                    processFrame ctx conf $ decodeFrameHeader hd
+                    decoded <- decodeFrameHeader hd
+                    processFrame ctx conf decoded
                     loop (n + 1)
 
     sendGoaway se
@@ -71,17 +72,17 @@ frameReceiver ctx@Context{..} conf@Config{..} = loop 0 `E.catch` sendGoaway
         | Just e@(ConnectionErrorIsReceived _ _ _) <- E.fromException se =
             enqueueControl controlQ $ CFinish e
         | Just e@(ConnectionErrorIsSent err sid msg) <- E.fromException se = do
-            let frame = goawayFrame sid err $ Short.fromShort msg
+            frame <- goawayFrame sid err $ Short.fromShort msg
             enqueueControl controlQ $ CFrames Nothing [frame]
             enqueueControl controlQ $ CFinish e
         | Just e@(StreamErrorIsSent err sid msg) <- E.fromException se = do
-            let frame = resetFrame err sid
+            frame <- resetFrame err sid
             enqueueControl controlQ $ CFrames Nothing [frame]
-            let frame' = goawayFrame sid err $ Short.fromShort msg
+            frame' <- goawayFrame sid err $ Short.fromShort msg
             enqueueControl controlQ $ CFrames Nothing [frame']
             enqueueControl controlQ $ CFinish e
         | Just e@(StreamErrorIsReceived err sid) <- E.fromException se = do
-            let frame = goawayFrame sid err "treat a stream error as a connection error"
+            frame <- goawayFrame sid err "treat a stream error as a connection error"
             enqueueControl controlQ $ CFrames Nothing [frame]
             enqueueControl controlQ $ CFinish e
         -- this never happens
@@ -151,7 +152,7 @@ controlOrStream ctx@Context{..} Config{..} ftyp header@FrameHeader{streamId, pay
             Nothing
                 | ftyp == FramePriority -> do
                     -- for h2spec only
-                    PriorityFrame newpri <- guardIt $ decodePriorityFrame header bs
+                    PriorityFrame newpri <- guardIt =<< decodePriorityFrame header bs
                     checkPriority newpri streamId
                 | otherwise -> return ()
   where
@@ -298,7 +299,7 @@ type Payload = ByteString
 
 control :: FrameType -> FrameHeader -> Payload -> Context -> IO ()
 control FrameSettings header@FrameHeader{flags, streamId} bs Context{myFirstSettings, controlQ, settingsRate, mySettings, rxFlow} = do
-    SettingsFrame peerAlist <- guardIt $ decodeSettingsFrame header bs
+    SettingsFrame peerAlist <- guardIt =<< decodeSettingsFrame header bs
     traverse_ E.throwIO $ checkSettingsList peerAlist
     if testAck flags
         then do
@@ -311,7 +312,7 @@ control FrameSettings header@FrameHeader{flags, streamId} bs Context{myFirstSett
             when (rate > settingsRateLimit) $
                 E.throwIO $
                     ConnectionErrorIsSent EnhanceYourCalm streamId "too many settings"
-            let ack = settingsFrame setAck []
+            ack <- settingsFrame setAck []
             sent <- readIORef myFirstSettings
             if sent
                 then do
@@ -320,8 +321,8 @@ control FrameSettings header@FrameHeader{flags, streamId} bs Context{myFirstSett
                 else do
                     -- Server side only
                     connRxWS <- rxfBufSize <$> readIORef rxFlow
-                    let frames = makeNegotiationFrames mySettings connRxWS
-                        setframe = CFrames (Just peerAlist) (frames ++ [ack])
+                    frames <- makeNegotiationFrames mySettings connRxWS
+                    let setframe = CFrames (Just peerAlist) (frames ++ [ack])
                     writeIORef myFirstSettings True
                     enqueueControl controlQ setframe
 control FramePing FrameHeader{flags, streamId} bs Context{mySettings, controlQ, pingRate} =
@@ -330,15 +331,15 @@ control FramePing FrameHeader{flags, streamId} bs Context{mySettings, controlQ, 
         if rate > pingRateLimit mySettings
             then E.throwIO $ ConnectionErrorIsSent EnhanceYourCalm streamId "too many ping"
             else do
-                let frame = pingFrame bs
+                frame <- pingFrame bs
                 enqueueControl controlQ $ CFrames Nothing [frame]
 control FrameGoAway header bs _ = do
-    GoAwayFrame sid err msg <- guardIt $ decodeGoAwayFrame header bs
+    GoAwayFrame sid err msg <- guardIt =<< decodeGoAwayFrame header bs
     if err == NoError
         then E.throwIO ConnectionIsClosed
         else E.throwIO $ ConnectionErrorIsReceived err sid $ Short.toShort msg
 control FrameWindowUpdate header bs ctx = do
-    WindowUpdateFrame n <- guardIt $ decodeWindowUpdateFrame header bs
+    WindowUpdateFrame n <- guardIt =<< decodeWindowUpdateFrame header bs
     increaseConnectionWindowSize ctx n
 control _ _ _ _ =
     -- must not reach here
@@ -349,7 +350,7 @@ control _ _ _ _ =
 -- Called in client only
 push :: FrameHeader -> ByteString -> Context -> IO ()
 push header@FrameHeader{streamId} bs ctx = do
-    PushPromiseFrame sid frag <- guardIt $ decodePushPromiseFrame header bs
+    PushPromiseFrame sid frag <- guardIt =<< decodePushPromiseFrame header bs
     unless (isServerInitiated sid) $
         E.throwIO $
             ConnectionErrorIsSent
@@ -404,7 +405,7 @@ stream
     -> IO StreamState
 -- Transition (stream1)
 stream FrameHeaders header@FrameHeader{flags, streamId} bs ctx s@(Open hcl JustOpened) Stream{streamNumber} = do
-    HeadersFrame mp frag <- guardIt $ decodeHeadersFrame header bs
+    HeadersFrame mp frag <- guardIt =<< decodeHeadersFrame header bs
     let endOfStream = testEndStream flags
         endOfHeader = testEndHeader flags
     if frag == "" && not endOfStream && not endOfHeader
@@ -434,7 +435,7 @@ stream FrameHeaders header@FrameHeader{flags, streamId} bs ctx s@(Open hcl JustO
 
 -- Transition (stream2)
 stream FrameHeaders header@FrameHeader{flags, streamId} bs ctx (Open _ (Body q _ _ tlr)) _ = do
-    HeadersFrame _ frag <- guardIt $ decodeHeadersFrame header bs
+    HeadersFrame _ frag <- guardIt =<< decodeHeadersFrame header bs
     let endOfStream = testEndStream flags
     -- checking frag == "" is not necessary
     if endOfStream
@@ -458,7 +459,7 @@ stream
     Context{emptyFrameRate, rxFlow}
     s@(Open _ (Body q mcl bodyLength _))
     Stream{..} = do
-        DataFrame body <- guardIt $ decodeDataFrame header bs
+        DataFrame body <- guardIt =<< decodeDataFrame header bs
         -- FLOW CONTROL: WINDOW_UPDATE 0: recv: rejecting if over my limit
         okc <- atomicModifyIORef' rxFlow $ checkRxLimit payloadLength
         unless okc $
@@ -538,7 +539,7 @@ stream FrameContinuation FrameHeader{flags, streamId} frag ctx s@(Open hcl (Cont
 
 -- (No state transition)
 stream FrameWindowUpdate header bs _ s strm = do
-    WindowUpdateFrame n <- guardIt $ decodeWindowUpdateFrame header bs
+    WindowUpdateFrame n <- guardIt =<< decodeWindowUpdateFrame header bs
     increaseStreamWindowSize strm n
     return s
 
@@ -549,7 +550,7 @@ stream FrameRSTStream header@FrameHeader{streamId} bs ctx s strm = do
     when (rate > rstRateLimit) $
         E.throwIO $
             ConnectionErrorIsSent EnhanceYourCalm streamId "too many rst_stream"
-    RSTStreamFrame err <- guardIt $ decodeRSTStreamFrame header bs
+    RSTStreamFrame err <- guardIt =<< decodeRSTStreamFrame header bs
     let cc = Reset err
     closed ctx strm cc
 
@@ -584,7 +585,7 @@ stream FrameRSTStream header@FrameHeader{streamId} bs ctx s strm = do
 stream FramePriority header bs _ s Stream{streamNumber} = do
     -- ignore
     -- Resource Loop - CVE-2019-9513
-    PriorityFrame newpri <- guardIt $ decodePriorityFrame header bs
+    PriorityFrame newpri <- guardIt =<< decodePriorityFrame header bs
     checkPriority newpri streamNumber
     return s
 

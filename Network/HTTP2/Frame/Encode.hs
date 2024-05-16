@@ -11,7 +11,7 @@ module Network.HTTP2.Frame.Encode (
 ) where
 
 import qualified Data.ByteString as BS
-import Data.ByteString.Internal (unsafeCreate)
+import Data.ByteString.Internal (create)
 import Foreign.Ptr (Ptr, plusPtr)
 import qualified Network.ByteOrder as N
 import Network.Control (WindowSize)
@@ -55,22 +55,23 @@ encodeInfo set sid = EncodeInfo (set defaultFlags) sid Nothing
 --
 -- >>> encodeFrame (encodeInfo id 1) (DataFrame "body")
 -- "\NUL\NUL\EOT\NUL\NUL\NUL\NUL\NUL\SOHbody"
-encodeFrame :: EncodeInfo -> FramePayload -> ByteString
-encodeFrame einfo payload = BS.concat $ encodeFrameChunks einfo payload
+encodeFrame :: EncodeInfo -> FramePayload -> IO ByteString
+encodeFrame einfo payload = BS.concat <$> encodeFrameChunks einfo payload
 
 -- | Encoding an HTTP/2 frame to ['ByteString'].
 --   This is suitable for sendMany.
-encodeFrameChunks :: EncodeInfo -> FramePayload -> [ByteString]
-encodeFrameChunks einfo payload = bs : bss
+encodeFrameChunks :: EncodeInfo -> FramePayload -> IO [ByteString]
+encodeFrameChunks einfo payload = do
+    (header, bss) <- encodeFramePayload einfo payload
+    bs <- encodeFrameHeader ftid header
+    return $ bs : bss
   where
     ftid = framePayloadToFrameType payload
-    bs = encodeFrameHeader ftid header
-    (header, bss) = encodeFramePayload einfo payload
 
 -- | Encoding an HTTP/2 frame header.
 --   The frame header must be completed.
-encodeFrameHeader :: FrameType -> FrameHeader -> ByteString
-encodeFrameHeader ftid fhdr = unsafeCreate frameHeaderLength $ encodeFrameHeaderBuf ftid fhdr
+encodeFrameHeader :: FrameType -> FrameHeader -> IO ByteString
+encodeFrameHeader ftid fhdr = create frameHeaderLength $ encodeFrameHeaderBuf ftid fhdr
 
 -- | Writing an encoded HTTP/2 frame header to the buffer.
 --   The length of the buffer must be larger than or equal to 9 bytes.
@@ -87,36 +88,36 @@ encodeFrameHeaderBuf ftid FrameHeader{..} ptr = do
 
 -- | Encoding an HTTP/2 frame payload.
 --   This returns a complete frame header and chunks of payload.
-encodeFramePayload :: EncodeInfo -> FramePayload -> (FrameHeader, [ByteString])
-encodeFramePayload einfo payload = (header, builder [])
-  where
-    (header, builder) = buildFramePayload einfo payload
+encodeFramePayload :: EncodeInfo -> FramePayload -> IO (FrameHeader, [ByteString])
+encodeFramePayload einfo payload = do
+    (header, builder) <- buildFramePayload einfo payload
+    return (header, builder [])
 
 ----------------------------------------------------------------
 
-buildFramePayload :: EncodeInfo -> FramePayload -> (FrameHeader, Builder)
+buildFramePayload :: EncodeInfo -> FramePayload -> IO (FrameHeader, Builder)
 buildFramePayload einfo (DataFrame body) =
-    buildFramePayloadData einfo body
+    return $ buildFramePayloadData einfo body
 buildFramePayload einfo (HeadersFrame mpri hdr) =
     buildFramePayloadHeaders einfo mpri hdr
 buildFramePayload einfo (PriorityFrame pri) =
     buildFramePayloadPriority einfo pri
 buildFramePayload einfo (RSTStreamFrame e) =
-    buildFramePayloadRSTStream einfo e
+    return $ buildFramePayloadRSTStream einfo e
 buildFramePayload einfo (SettingsFrame settings) =
     buildFramePayloadSettings einfo settings
 buildFramePayload einfo (PushPromiseFrame sid hdr) =
-    buildFramePayloadPushPromise einfo sid hdr
+    return $ buildFramePayloadPushPromise einfo sid hdr
 buildFramePayload einfo (PingFrame opaque) =
-    buildFramePayloadPing einfo opaque
+    return $ buildFramePayloadPing einfo opaque
 buildFramePayload einfo (GoAwayFrame sid e debug) =
     buildFramePayloadGoAway einfo sid e debug
 buildFramePayload einfo (WindowUpdateFrame size) =
-    buildFramePayloadWindowUpdate einfo size
+    return $ buildFramePayloadWindowUpdate einfo size
 buildFramePayload einfo (ContinuationFrame hdr) =
-    buildFramePayloadContinuation einfo hdr
+    return $ buildFramePayloadContinuation einfo hdr
 buildFramePayload einfo (UnknownFrame _ opaque) =
-    buildFramePayloadUnknown einfo opaque
+    return $ buildFramePayloadUnknown einfo opaque
 
 ----------------------------------------------------------------
 
@@ -140,18 +141,18 @@ buildPadding EncodeInfo{encodePadding = Just padding, ..} btarget targetLength =
     len = targetLength + paddingLength + 1
     newflags = setPadded encodeFlags
 
-buildPriority :: Priority -> Builder
-buildPriority Priority{..} = builder
-  where
-    builder = (priority :)
-    estream
-        | exclusive = setExclusive streamDependency
-        | otherwise = streamDependency
-    priority = unsafeCreate 5 $ \ptr -> do
+buildPriority :: Priority -> IO Builder
+buildPriority Priority{..} = do
+    priority <- create 5 $ \ptr -> do
         let esid = fromIntegral estream
             w = fromIntegral $ weight - 1
         N.poke32 esid ptr 0
         N.poke8 w ptr 4
+    return (priority :)
+  where
+    estream
+        | exclusive = setExclusive streamDependency
+        | otherwise = streamDependency
 
 ----------------------------------------------------------------
 
@@ -165,23 +166,24 @@ buildFramePayloadHeaders
     :: EncodeInfo
     -> Maybe Priority
     -> HeaderBlockFragment
-    -> (FrameHeader, Builder)
+    -> IO (FrameHeader, Builder)
 buildFramePayloadHeaders einfo Nothing hdr =
-    buildPadding einfo builder len
+    return $ buildPadding einfo builder len
   where
     builder = (hdr :)
     len = BS.length hdr
-buildFramePayloadHeaders einfo (Just pri) hdr =
-    buildPadding einfo' builder len
+buildFramePayloadHeaders einfo (Just pri) hdr = do
+    builder <-(. (hdr :)) <$> buildPriority pri
+    return $ buildPadding einfo' builder len
   where
-    builder = buildPriority pri . (hdr :)
     len = BS.length hdr + 5
     einfo' = einfo{encodeFlags = setPriority (encodeFlags einfo)}
 
-buildFramePayloadPriority :: EncodeInfo -> Priority -> (FrameHeader, Builder)
-buildFramePayloadPriority EncodeInfo{..} p = (header, builder)
+buildFramePayloadPriority :: EncodeInfo -> Priority -> IO (FrameHeader, Builder)
+buildFramePayloadPriority EncodeInfo{..} p = do
+    builder <- buildPriority p
+    return (header, builder)
   where
-    builder = buildPriority p
     header = FrameHeader 5 encodeFlags encodeStreamId
 
 buildFramePayloadRSTStream :: EncodeInfo -> ErrorCode -> (FrameHeader, Builder)
@@ -192,11 +194,12 @@ buildFramePayloadRSTStream EncodeInfo{..} e = (header, builder)
     header = FrameHeader 4 encodeFlags encodeStreamId
 
 buildFramePayloadSettings
-    :: EncodeInfo -> SettingsList -> (FrameHeader, Builder)
-buildFramePayloadSettings EncodeInfo{..} alist = (header, builder)
+    :: EncodeInfo -> SettingsList -> IO (FrameHeader, Builder)
+buildFramePayloadSettings EncodeInfo{..} alist = do
+    settings <- create len $ \ptr -> go ptr alist
+    let builder = (settings :)
+    return (header, builder)
   where
-    builder = (settings :)
-    settings = unsafeCreate len $ \ptr -> go ptr alist
     go _ [] = return ()
     go p ((k, v) : kvs) = do
         N.poke16 (fromSettingsKey k) p 0
@@ -220,14 +223,15 @@ buildFramePayloadPing EncodeInfo{..} odata = (header, builder)
     header = FrameHeader 8 encodeFlags encodeStreamId
 
 buildFramePayloadGoAway
-    :: EncodeInfo -> StreamId -> ErrorCode -> ByteString -> (FrameHeader, Builder)
-buildFramePayloadGoAway EncodeInfo{..} sid e debug = (header, builder)
-  where
-    builder = (b8 :) . (debug :)
-    len0 = 8
-    b8 = unsafeCreate len0 $ \ptr -> do
+    :: EncodeInfo -> StreamId -> ErrorCode -> ByteString -> IO (FrameHeader, Builder)
+buildFramePayloadGoAway EncodeInfo{..} sid e debug = do
+    b8 <- create len0 $ \ptr -> do
         N.poke32 (fromIntegral sid) ptr 0
         N.poke32 (fromErrorCode e) ptr 4
+    let builder = (b8 :) . (debug :)
+    return (header, builder)
+  where
+    len0 = 8
     len = len0 + BS.length debug
     header = FrameHeader len encodeFlags encodeStreamId
 

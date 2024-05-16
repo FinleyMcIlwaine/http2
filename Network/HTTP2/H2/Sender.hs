@@ -121,7 +121,7 @@ frameSender
         control :: Control -> IO ()
         control (CFinish e) = E.throwIO e
         control (CGoaway bs mvar) = do
-            buf <- copyAll [bs] confWriteBuffer
+            buf <- copy confWriteBuffer bs
             let off = buf `minusPtr` confWriteBuffer
             flushN off
             putMVar mvar ()
@@ -255,7 +255,7 @@ frameSender
                         output out off lim
             resetStream e = do
                 closed ctx strm (ResetByMe e)
-                let rst = resetFrame InternalError $ streamNumber strm
+                rst <- resetFrame InternalError $ streamNumber strm
                 enqueueControl controlQ $ CFrames Nothing [rst]
                 return off
 

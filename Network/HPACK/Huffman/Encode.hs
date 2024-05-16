@@ -6,13 +6,13 @@ module Network.HPACK.Huffman.Encode (
     encodeHuffman,
 ) where
 
-import Data.Array.Base (unsafeAt)
+import Data.Array.Base ((!))
 import Data.Array.IArray (listArray)
 import Data.Array.Unboxed (UArray)
 import Data.IORef
 import Foreign.Ptr (minusPtr, plusPtr)
 import Foreign.Storable (poke)
-import Network.ByteOrder hiding (copy)
+import Network.ByteOrder
 import UnliftIO.Exception (throwIO)
 
 import Imports
@@ -68,8 +68,8 @@ enc WriteBuffer{..} rbuf = do
         {-# INLINE bond #-}
         bond i = (encoded', off')
           where
-            len = huffmanLength `unsafeAt` i
-            code = huffmanCode `unsafeAt` i
+            len = huffmanLength ! i
+            code = huffmanCode ! i
             scode = code `shiftL` (off - len)
             encoded' = encoded .|. scode
             off' = off - len

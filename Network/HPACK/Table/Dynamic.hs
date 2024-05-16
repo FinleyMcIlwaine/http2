@@ -24,7 +24,7 @@ module Network.HPACK.Table.Dynamic (
     getRevIndex,
 ) where
 
-import Data.Array.Base (unsafeRead, unsafeWrite)
+import Data.Array.Base (readArray, writeArray)
 import Data.Array.IO (IOArray, newArray)
 import qualified Data.ByteString.Char8 as BS
 import Data.IORef
@@ -142,7 +142,7 @@ printDynamicTable DynamicTable{..} = do
     let beg = off + 1
         end = off + n
     tbl <- readIORef circularTable
-    es <- mapM (adj maxN >=> unsafeRead tbl) [beg .. end]
+    es <- mapM (adj maxN >=> readArray tbl) [beg .. end]
     let ts = zip [1 ..] es
     mapM_ printEntry ts
     dsize <- readIORef dynamicTableSize
@@ -265,7 +265,7 @@ getEntries DynamicTable{..} = do
     off <- readIORef offset
     n <- readIORef numOfEntries
     table <- readIORef circularTable
-    let readTable i = adj maxN (off + i) >>= unsafeRead table
+    let readTable i = adj maxN (off + i) >>= readArray table
     forM [1 .. n] readTable
 
 copyEntries :: DynamicTable -> [Entry] -> IO ()
@@ -336,7 +336,7 @@ insertFront e DynamicTable{..} = do
         then return ()
         else do
             off' <- adj maxN (off - 1)
-            unsafeWrite table i e
+            writeArray table i e
             writeIORef offset off'
             writeIORef numOfEntries $ n + 1
             writeIORef dynamicTableSize dsize'
@@ -368,7 +368,7 @@ insertEnd e DynamicTable{..} = do
     table <- readIORef circularTable
     i <- adj maxN (off + n + 1)
     let dsize' = dsize + entrySize e
-    unsafeWrite table i e
+    writeArray table i e
     writeIORef numOfEntries $ n + 1
     writeIORef dynamicTableSize dsize'
     case codeInfo of
@@ -384,8 +384,8 @@ removeEnd DynamicTable{..} = do
     n <- readIORef numOfEntries
     i <- adj maxN (off + n)
     table <- readIORef circularTable
-    e <- unsafeRead table i
-    unsafeWrite table i dummyEntry -- let the entry GCed
+    e <- readArray table i
+    writeArray table i dummyEntry -- let the entry GCed
     dsize <- readIORef dynamicTableSize
     let dsize' = dsize - entrySize e
     writeIORef numOfEntries (n - 1)
@@ -403,7 +403,7 @@ toDynamicEntry DynamicTable{..} idx = do
     when (idx > n + staticTableSize) $ throwIO $ IndexOverrun idx
     didx <- adj maxN (idx + off - staticTableSize)
     table <- readIORef circularTable
-    unsafeRead table didx
+    readArray table didx
 
 ----------------------------------------------------------------
 

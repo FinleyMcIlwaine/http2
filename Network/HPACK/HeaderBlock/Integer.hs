@@ -8,7 +8,7 @@ module Network.HPACK.HeaderBlock.Integer (
 ) where
 
 import Data.Array (Array, listArray)
-import Data.Array.Base (unsafeAt)
+import Data.Array.Base ((!))
 import Network.ByteOrder
 
 import Imports
@@ -69,7 +69,7 @@ encodeI wbuf set n i
         write8 wbuf $ set $ fromIntegral p
         encode' (i - p)
   where
-    p = powerArray `unsafeAt` (n - 1)
+    p = powerArray ! (n - 1)
     encode' :: Int -> IO ()
     encode' j
         | j < 128 = write8 wbuf $ fromIntegral j
@@ -126,7 +126,7 @@ decodeI n w rbuf
     | i < p = return i
     | otherwise = decode 0 i
   where
-    p = powerArray `unsafeAt` (n - 1)
+    p = powerArray ! (n - 1)
     i = fromIntegral w
     decode :: Int -> Int -> IO Int
     decode m j = do

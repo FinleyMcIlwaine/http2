@@ -14,7 +14,7 @@ module Network.HPACK.Table.RevIndex (
 
 import Data.Array (Array)
 import qualified Data.Array as A
-import Data.Array.Base (unsafeAt)
+import Data.Array.Base ((!))
 import Data.Function (on)
 import Data.IORef
 import Data.Map.Strict (Map)
@@ -77,7 +77,7 @@ staticRevIndex = A.array (minTokenIx, maxStaticTokenIx) $ map toEnt zs
 {-# INLINE lookupStaticRevIndex #-}
 lookupStaticRevIndex
     :: Int -> FieldValue -> (HIndex -> IO ()) -> (HIndex -> IO ()) -> IO ()
-lookupStaticRevIndex ix v fa' fbd' = case staticRevIndex `unsafeAt` ix of
+lookupStaticRevIndex ix v fa' fbd' = case staticRevIndex ! ix of
     StaticEntry i Nothing -> fbd' i
     StaticEntry i (Just m) -> case M.lookup v m of
         Nothing -> fbd' i
@@ -94,7 +94,7 @@ newDynamicRevIndex = A.listArray (minTokenIx, maxStaticTokenIx) <$> mapM mk' lst
 renewDynamicRevIndex :: DynamicRevIndex -> IO ()
 renewDynamicRevIndex drev = mapM_ clear [minTokenIx .. maxStaticTokenIx]
   where
-    clear t = writeIORef (drev `unsafeAt` t) M.empty
+    clear t = writeIORef (drev ! t) M.empty
 
 {-# INLINE lookupDynamicStaticRevIndex #-}
 lookupDynamicStaticRevIndex
@@ -105,7 +105,7 @@ lookupDynamicStaticRevIndex
     -> (HIndex -> IO ())
     -> IO ()
 lookupDynamicStaticRevIndex ix v drev fa' fbd' = do
-    let ref = drev `unsafeAt` ix
+    let ref = drev ! ix
     m <- readIORef ref
     case M.lookup v m of
         Just i -> fa' i
@@ -116,13 +116,13 @@ insertDynamicRevIndex
     :: Token -> FieldValue -> HIndex -> DynamicRevIndex -> IO ()
 insertDynamicRevIndex t v i drev = modifyIORef ref $ M.insert v i
   where
-    ref = drev `unsafeAt` tokenIx t
+    ref = drev ! tokenIx t
 
 {-# INLINE deleteDynamicRevIndex #-}
 deleteDynamicRevIndex :: Token -> FieldValue -> DynamicRevIndex -> IO ()
 deleteDynamicRevIndex t v drev = modifyIORef ref $ M.delete v
   where
-    ref = drev `unsafeAt` tokenIx t
+    ref = drev ! tokenIx t
 
 ----------------------------------------------------------------
 

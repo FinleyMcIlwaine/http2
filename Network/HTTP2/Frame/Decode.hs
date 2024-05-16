@@ -28,7 +28,6 @@ import Data.Array (Array, listArray, (!))
 import qualified Data.ByteString as BS
 import Foreign.Ptr (Ptr, plusPtr)
 import qualified Network.ByteOrder as N
-import System.IO.Unsafe (unsafeDupablePerformIO)
 import UnliftIO.Exception (Exception)
 
 import Imports
@@ -50,13 +49,20 @@ instance Exception FrameDecodeError
 decodeFrame
     :: ByteString
     -- ^ Input byte-stream
-    -> Either FrameDecodeError Frame
+    -> IO (Either FrameDecodeError Frame)
     -- ^ Decoded frame
-decodeFrame bs =
-    checkFrameHeader (decodeFrameHeader bs0)
-        >>= \(typ, header) ->
-            decodeFramePayload typ header bs1
-                >>= \payload -> return $ Frame header payload
+decodeFrame bs = do
+    h <- decodeFrameHeader bs0
+    case checkFrameHeader h of
+      Right (typ, header) -> do
+        mPayload <- decodeFramePayload typ header bs1
+        case mPayload of
+          Right payload ->
+            return . pure $ Frame header payload
+          Left err ->
+            return (Left err)
+      Left err ->
+        return (Left err)
   where
     (bs0, bs1) = BS.splitAt 9 bs
 
@@ -64,8 +70,8 @@ decodeFrame bs =
 
 -- | Decoding an HTTP/2 frame header.
 --   Must supply 9 bytes.
-decodeFrameHeader :: ByteString -> (FrameType, FrameHeader)
-decodeFrameHeader (PS fptr off _) = unsafeDupablePerformIO $ withForeignPtr fptr $ \ptr -> do
+decodeFrameHeader :: ByteString -> IO (FrameType, FrameHeader)
+decodeFrameHeader (PS fptr off _) = withForeignPtr fptr $ \ptr -> do
     let p = ptr +. off
     len <- fromIntegral <$> N.peek24 p 0
     typ <- toFrameType <$> N.peek8 p 3
@@ -183,7 +189,7 @@ nonZeroFrameTypes =
 type FramePayloadDecoder =
     FrameHeader
     -> ByteString
-    -> Either FrameDecodeError FramePayload
+    -> IO (Either FrameDecodeError FramePayload)
 
 payloadDecoders :: Array FrameType FramePayloadDecoder
 payloadDecoders =
@@ -215,37 +221,38 @@ decodeFramePayload ftyp = checkFrameSize decoder
 
 -- | Frame payload decoder for DATA frame.
 decodeDataFrame :: FramePayloadDecoder
-decodeDataFrame header bs = decodeWithPadding header bs DataFrame
+decodeDataFrame header bs = decodeWithPadding header bs (pure . DataFrame)
 
 -- | Frame payload decoder for HEADERS frame.
 decodeHeadersFrame :: FramePayloadDecoder
 decodeHeadersFrame header bs = decodeWithPadding header bs $ \bs' ->
     if hasPriority
-        then
+        then do
             let (bs0, bs1) = BS.splitAt 5 bs'
-                p = priority bs0
-             in HeadersFrame (Just p) bs1
-        else HeadersFrame Nothing bs'
+            p <- priority bs0
+            return $ HeadersFrame (Just p) bs1
+        else pure $ HeadersFrame Nothing bs'
   where
     hasPriority = testPriority $ flags header
 
 -- | Frame payload decoder for PRIORITY frame.
 decodePriorityFrame :: FramePayloadDecoder
-decodePriorityFrame _ bs = Right $ PriorityFrame $ priority bs
+decodePriorityFrame _ bs = Right . PriorityFrame <$> priority bs
 
 -- | Frame payload decoder for RST_STREAM frame.
 decodeRSTStreamFrame :: FramePayloadDecoder
-decodeRSTStreamFrame _ bs = Right $ RSTStreamFrame $ toErrorCode (N.word32 bs)
+decodeRSTStreamFrame _ bs = pure . Right $ RSTStreamFrame $ toErrorCode (N.word32 bs)
 
 -- | Frame payload decoder for SETTINGS frame.
 decodeSettingsFrame :: FramePayloadDecoder
 decodeSettingsFrame FrameHeader{..} (PS fptr off _)
     | num > 10 =
-        Left $ FrameDecodeError EnhanceYourCalm streamId "Settings is too large"
-    | otherwise = Right $ SettingsFrame alist
+        pure . Left $ FrameDecodeError EnhanceYourCalm streamId "Settings is too large"
+    | otherwise = do
+        Right . SettingsFrame <$> alist
   where
     num = payloadLength `div` 6
-    alist = unsafeDupablePerformIO $ withForeignPtr fptr $ \ptr -> do
+    alist = withForeignPtr fptr $ \ptr -> do
         let p = ptr +. off
         settings num p id
     settings 0 _ builder = return $ builder []
@@ -262,15 +269,15 @@ decodePushPromiseFrame :: FramePayloadDecoder
 decodePushPromiseFrame header bs = decodeWithPadding header bs $ \bs' ->
     let (bs0, bs1) = BS.splitAt 4 bs'
         sid = streamIdentifier (N.word32 bs0)
-     in PushPromiseFrame sid bs1
+     in pure $ PushPromiseFrame sid bs1
 
 -- | Frame payload decoder for PING frame.
 decodePingFrame :: FramePayloadDecoder
-decodePingFrame _ bs = Right $ PingFrame bs
+decodePingFrame _ bs = pure . Right $ PingFrame bs
 
 -- | Frame payload decoder for GOAWAY frame.
 decodeGoAwayFrame :: FramePayloadDecoder
-decodeGoAwayFrame _ bs = Right $ GoAwayFrame sid ecid bs2
+decodeGoAwayFrame _ bs = pure . Right $ GoAwayFrame sid ecid bs2
   where
     (bs0, bs1') = BS.splitAt 4 bs
     (bs1, bs2) = BS.splitAt 4 bs1'
@@ -281,24 +288,24 @@ decodeGoAwayFrame _ bs = Right $ GoAwayFrame sid ecid bs2
 decodeWindowUpdateFrame :: FramePayloadDecoder
 decodeWindowUpdateFrame FrameHeader{..} bs
     | wsi == 0 =
-        Left $ FrameDecodeError ProtocolError streamId "window update must not be 0"
-    | otherwise = Right $ WindowUpdateFrame wsi
+       pure .  Left $ FrameDecodeError ProtocolError streamId "window update must not be 0"
+    | otherwise = pure . Right $ WindowUpdateFrame wsi
   where
     wsi = fromIntegral (N.word32 bs `clearBit` 31)
 
 -- | Frame payload decoder for CONTINUATION frame.
 decodeContinuationFrame :: FramePayloadDecoder
-decodeContinuationFrame _ bs = Right $ ContinuationFrame bs
+decodeContinuationFrame _ bs = pure . Right $ ContinuationFrame bs
 
 decodeUnknownFrame :: FrameType -> FramePayloadDecoder
-decodeUnknownFrame typ _ bs = Right $ UnknownFrame typ bs
+decodeUnknownFrame typ _ bs = pure . Right $ UnknownFrame typ bs
 
 ----------------------------------------------------------------
 
 checkFrameSize :: FramePayloadDecoder -> FramePayloadDecoder
 checkFrameSize func header@FrameHeader{..} body
     | payloadLength > BS.length body =
-        Left $ FrameDecodeError FrameSizeError streamId "payload is too short"
+        pure . Left $ FrameDecodeError FrameSizeError streamId "payload is too short"
     | otherwise = func header body
 
 -- | Helper function to pull off the padding if its there, and will
@@ -308,25 +315,25 @@ checkFrameSize func header@FrameHeader{..} body
 decodeWithPadding
     :: FrameHeader
     -> ByteString
-    -> (ByteString -> FramePayload)
-    -> Either FrameDecodeError FramePayload
+    -> (ByteString -> IO FramePayload)
+    -> IO (Either FrameDecodeError FramePayload)
 decodeWithPadding FrameHeader{..} bs body
     | padded =
         let (w8, rest) = fromMaybe (error "decodeWithPadding") $ BS.uncons bs
             padlen = intFromWord8 w8
             bodylen = payloadLength - padlen - 1
          in if bodylen < 0
-                then Left $ FrameDecodeError ProtocolError streamId "padding is not enough"
-                else Right . body $ BS.take bodylen rest
-    | otherwise = Right $ body bs
+                then pure . Left $ FrameDecodeError ProtocolError streamId "padding is not enough"
+                else Right <$> body (BS.take bodylen rest)
+    | otherwise = Right <$> body bs
   where
     padded = testPadded flags
 
 streamIdentifier :: Word32 -> StreamId
 streamIdentifier w32 = clearExclusive $ fromIntegral w32
 
-priority :: ByteString -> Priority
-priority (PS fptr off _) = unsafeDupablePerformIO $ withForeignPtr fptr $ \ptr -> do
+priority :: ByteString -> IO Priority
+priority (PS fptr off _) = withForeignPtr fptr $ \ptr -> do
     let p = ptr +. off
     w32 <- N.peek32 p 0
     let streamdId = streamIdentifier w32
