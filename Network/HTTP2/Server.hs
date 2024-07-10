@@ -45,6 +45,10 @@ module Network.HTTP2.Server (
     initialWindowSize,
     maxFrameSize,
     maxHeaderListSize,
+    pingRateLimit,
+    settingsRateLimit,
+    emptyFrameRateLimit,
+    rstRateLimit,
 
     -- * Common configuration
     Config (..),

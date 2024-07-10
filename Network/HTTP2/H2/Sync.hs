@@ -10,6 +10,7 @@ import Network.HTTP2.H2.Context
 import Network.HTTP2.H2.Queue
 import Network.HTTP2.H2.Types
 import Network.HTTP2.H2.Window
+import Debug.Trace (traceM)
 
 syncWithSender
     :: Context
@@ -18,18 +19,26 @@ syncWithSender
     -> Maybe (TBQueue StreamingChunk)
     -> IO ()
 syncWithSender Context{..} strm otyp mtbq = do
+    traceM "in syncWithSender"
     var <- newEmptyMVar
-    let sync = makeSync strm mtbq (putMVar var)
+    let sync = makeSync strm mtbq (\i -> traceM ("putting in sync: " ++ show i) >> putMVar var i >> traceM "put in sync")
+    traceM "enqueueing output"
     enqueueOutput outputQ $ Output strm otyp sync
+    traceM "looping"
     loop var sync
   where
     loop var sync = do
+        traceM "in loop, taking"
         s <- takeMVar var
+        traceM "took"
         case s of
-            Done -> return ()
+            Done -> traceM "done"
             Cont wait newotyp -> do
+                traceM "Cont, waiting"
                 wait
+                traceM "enqueueing"
                 enqueueOutput outputQ $ Output strm newotyp sync
+                traceM "looping again"
                 loop var sync
 
 makeSync
@@ -38,13 +47,16 @@ makeSync
     -> (Sync -> IO ())
     -> Maybe OutputType
     -> IO Bool
-makeSync _ _ sync Nothing = sync Done >> return False
+makeSync _ _ sync Nothing = traceM "sync: No OutputType" >> sync Done >> return False
 makeSync strm mtbq sync (Just otyp) = do
+    traceM "sync: checkOpen"
     mwait <- checkOpen strm mtbq
     case mwait of
-        Nothing -> return True
+        Nothing -> traceM "sync: no wait" >> return True
         Just wait -> do
+            traceM "sync: wait"
             sync $ Cont wait otyp
+            traceM "returning"
             return False
 
 checkOpen :: Stream -> Maybe (TBQueue StreamingChunk) -> IO (Maybe (IO ()))

@@ -183,6 +183,10 @@ data OutputType
 
 data Sync = Done | Cont (IO ()) OutputType
 
+instance Show Sync where
+  show Done = "Done"
+  show (Cont _ _) = "Cont ..."
+
 ----------------------------------------------------------------
 
 data Control

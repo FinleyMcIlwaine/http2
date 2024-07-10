@@ -27,6 +27,12 @@ data Settings = Settings
     -- ^ SETTINGS_MAX_HEADER_LIST_SIZE
     , pingRateLimit :: Int
     -- ^ Maximum number of pings allowed per second (CVE-2019-9512)
+    , emptyFrameRateLimit :: Int
+    -- ^ Maximum number of empty data frames allowed per second (CVE-2019-9518)
+    , settingsRateLimit :: Int
+    -- ^ Maximum number of settings frames allowed per second (CVE-2019-9515)
+    , rstRateLimit :: Int
+    -- ^ Maximum number of reset frames allowed per second (CVE-2023-44487)
     }
     deriving (Eq, Show)
 
@@ -44,6 +50,9 @@ baseSettings =
         , maxFrameSize = defaultPayloadLength -- 2^14 (16,384)
         , maxHeaderListSize = Nothing
         , pingRateLimit = 10
+        , emptyFrameRateLimit = 4
+        , settingsRateLimit = 4
+        , rstRateLimit = 4
         }
 
 -- | The default settings.

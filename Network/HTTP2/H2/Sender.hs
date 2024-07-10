@@ -28,6 +28,8 @@ import Network.HTTP2.H2.Stream
 import Network.HTTP2.H2.StreamTable
 import Network.HTTP2.H2.Types
 import Network.HTTP2.H2.Window
+import Debug.Trace (traceM)
+import GHC.InfoProv
 
 ----------------------------------------------------------------
 
@@ -141,16 +143,24 @@ frameSender
         ----------------------------------------------------------------
         outputOrEnqueueAgain :: Output -> Offset -> IO Offset
         outputOrEnqueueAgain out@(Output strm otyp sync) off = E.handle resetStream $ do
+            traceM "sender: outputOrEnqueueAgain"
             state <- readStreamState strm
             if isHalfClosedLocal state
-                then return off
+                then do
+                  traceM "sender: isHalfClosedLocal is true, returning offset"
+                  return off
                 else case otyp of
-                    OHeader hdr mnext tlrmkr ->
+                    OHeader hdr mnext tlrmkr -> do
+                        traceM "sender: OHeader, outputting headers"
                         -- Send headers immediately, without waiting for data
                         -- No need to check the streaming window (applies to DATA frames only)
-                        outputHeader strm hdr mnext tlrmkr sync off
+                        x <- outputHeader strm hdr mnext tlrmkr sync off
+                        traceM "sender: outputHeader done"
+                        return x
                     _ -> do
+                        traceM "sender: syncing with worker"
                         ok <- sync $ Just otyp
+                        traceM $ "sender: synced, ok: " ++ show ok
                         if ok
                             then do
                                 sws <- getStreamWindowSize strm
@@ -175,6 +185,7 @@ frameSender
             -> Offset
             -> IO Offset
         outputHeader strm hdr mnext tlrmkr sync off0 = do
+            traceM "sender: in outputHeader"
             -- Header frame and Continuation frame
             let sid = streamNumber strm
                 endOfStream = isNothing mnext
@@ -183,18 +194,21 @@ frameSender
             -- halfClosedLocal calls closed which removes
             -- the stream from stream table.
             when endOfStream $ do
+                traceM "sender: outputHeader endOfStream"
                 halfClosedLocal ctx strm Finished
                 void $ sync Nothing
             off <- flushIfNecessary off'
             case mnext of
-                Nothing -> return off
+                Nothing -> traceM "sender: no next" >> return off
                 Just next -> do
+                    traceM "sender: next, outputHeader outputting or enqueueing again"
                     let out' = Output strm (ONext next tlrmkr) sync
                     outputOrEnqueueAgain out' off
 
         ----------------------------------------------------------------
         output :: Output -> Offset -> WindowSize -> IO Offset
         output out@(Output strm (ONext curr tlrmkr) sync) off0 lim = do
+            traceM "sender: output, ONext"
             -- Data frame payload
             buflim <- readIORef outputBufferLimit
             let payloadOff = off0 + frameHeaderLength
@@ -202,7 +216,8 @@ frameSender
                 datBufSiz = buflim - payloadOff
             Next datPayloadLen reqflush mnext <- curr datBuf (min datBufSiz lim)
             NextTrailersMaker tlrmkr' <- runTrailersMaker tlrmkr datBuf datPayloadLen
-            fillDataHeaderEnqueueNext
+            traceM "sender: output, calling fillDataHeaderEnqueueNext"
+            x <- fillDataHeaderEnqueueNext
                 strm
                 off0
                 datPayloadLen
@@ -211,6 +226,8 @@ frameSender
                 sync
                 out
                 reqflush
+            traceM "sender: output, fillDataHeaderEnqueueNext is done"
+            return x
         output (Output strm (OPush ths pid) sync) off0 _lim = do
             -- Creating a push promise header
             -- Frame id should be associated stream id from the client.
@@ -281,15 +298,22 @@ frameSender
             sync
             _
             reqflush = do
+                traceM "sender: fillDataHeader case 1, doing trailers"
                 let buf = confWriteBuffer `plusPtr` off
                     off' = off + frameHeaderLength + datPayloadLen
                 (mtrailers, flag) <- do
+                    tlrmkr_ipe <- whereFrom tlrmkr
+                    traceM $ "sender: fillDataHeader doing tlrmkr coming from: " ++ show tlrmkr_ipe
                     Trailers trailers <- tlrmkr Nothing
+                    traceM "sender: fillDataHeader tlrmkr done"
                     if null trailers
                         then return (Nothing, setEndStream defaultFlags)
                         else return (Just trailers, defaultFlags)
+                traceM "sender: fillDataHeader made trailers, filling header"
                 fillFrameHeader FrameData datPayloadLen streamNumber flag buf
+                traceM "sender: fillDataHeader filled header, handling trailers"
                 off'' <- handleTrailers mtrailers off'
+                traceM "sender: fillDataHeader handled trailers, syncing Nothing"
                 _ <- sync Nothing
                 halfClosedLocal ctx strm Finished
                 decreaseWindowSize ctx strm datPayloadLen
@@ -312,6 +336,7 @@ frameSender
             _
             out
             reqflush = do
+                traceM "sender: fillDataHeader case 2"
                 let out' = out{outputType = ONext next tlrmkr}
                 enqueueOutput outputQ out'
                 if reqflush
@@ -328,6 +353,7 @@ frameSender
             _
             out
             reqflush = do
+                traceM "sender: fillDataHeader case 3"
                 let buf = confWriteBuffer `plusPtr` off
                     off' = off + frameHeaderLength + datPayloadLen
                     flag = defaultFlags

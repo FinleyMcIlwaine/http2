@@ -19,6 +19,7 @@ import UnliftIO.STM
 import Imports hiding (insert)
 import Network.HTTP2.Frame
 import Network.HTTP2.H2
+import Debug.Trace
 
 ----------------------------------------------------------------
 
@@ -97,16 +98,25 @@ sendResponse
     -> [PushPromise]
     -> IO ()
 sendResponse conf ctx th strm (Request req) (Response rsp) pps = do
+    traceM "begin sendResponse, pushing stream"
     mwait <- pushStream conf ctx strm reqvt pps
+    traceM "pushed stream"
     case mwait of
-        Nothing -> return ()
-        Just wait -> wait -- all pushes are sent
+        Nothing -> do
+          traceM "no wait"
+          return ()
+        Just wait -> do
+          traceM "wait"
+          wait -- all pushes are sent
+    traceM "calling sendHeaderBody"
     sendHeaderBody conf ctx th strm rsp
+    traceM "sendHeaderBody done"
   where
     (_, reqvt) = inpObjHeaders req
 
 sendHeaderBody :: Config -> Context -> T.Handle -> Stream -> OutObj -> IO ()
 sendHeaderBody Config{..} ctx@Context{..} th strm OutObj{..} = do
+    traceM "checking outObjBody"
     (mnext, mtbq) <- case outObjBody of
         OutBodyNone -> return (Nothing, Nothing)
         OutBodyFile (FileSpec path fileoff bytecount) -> do
@@ -117,14 +127,19 @@ sendHeaderBody Config{..} ctx@Context{..} th strm OutObj{..} = do
             let next = fillFileBodyGetNext pread fileoff bytecount refresh
             return (Just next, Nothing)
         OutBodyBuilder builder -> do
+            traceM "sendHeader OutBodyBuilder"
             let next = fillBuilderBodyGetNext builder
             return (Just next, Nothing)
         OutBodyStreaming strmbdy -> do
+            traceM "OutBodyStreaming: calling sendStreaming"
             q <- sendStreaming ctx strm th $ \OutBodyIface{..} -> strmbdy outBodyPush outBodyFlush
+            traceM "sent streaming; returning"
             let next = nextForStreaming q
             return (Just next, Just q)
         OutBodyStreamingUnmask _ -> error "OutBodyStreamingUnmask is not supported in server"
+    traceM "syncing with sender"
     syncWithSender ctx strm (OHeader outObjHeaders mnext outObjTrailers) mtbq
+    traceM "synced with sender"
   where
     nextForStreaming
         :: TBQueue StreamingChunk
@@ -173,7 +188,9 @@ worker conf server ctx@Context{..} strm req =
         T.tickle th
         let aux = Aux th mySockAddr peerSockAddr
             request = Request req'
+        traceM "serving"
         server request aux $ sendResponse conf ctx th strm request
+        traceM "served"
         adjustRxWindow ctx strm
   where
     pauseRequestBody th = req{inpObjBody = readBody'}
