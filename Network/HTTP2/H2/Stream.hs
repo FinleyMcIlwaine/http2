@@ -159,6 +159,7 @@ withOutBodyIface tbq unmask k = do
                     atomically $
                         whenNotTerminated $
                             writeTBQueue tbq StreamingFlush
+                    putStrLn "\n\nHTTP2 WROTE STREAMING FLUSH\n\n"
                 , outBodyCancel = \mErr ->
                     atomically $
                         terminateWith StreamCancelled $

@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use lambda-case" #-}
 
 module Network.HTTP2.H2.Sender (
     frameSender,
@@ -28,6 +30,7 @@ import Network.HTTP2.H2.Stream
 import Network.HTTP2.H2.StreamTable
 import Network.HTTP2.H2.Types
 import Network.HTTP2.H2.Window
+import GHC.Stack
 
 ----------------------------------------------------------------
 
@@ -196,14 +199,14 @@ frameSender
                     return (off, Just out')
 
         ----------------------------------------------------------------
-        output :: Output -> Offset -> WindowSize -> IO (Offset, Maybe Output)
+        output :: HasCallStack => Output -> Offset -> WindowSize -> IO (Offset, Maybe Output)
         output out@(Output strm (ONext curr tlrmkr) _) off0 lim = do
             -- Data frame payload
             buflim <- readIORef outputBufferLimit
             let payloadOff = off0 + frameHeaderLength
                 datBuf = confWriteBuffer `plusPtr` payloadOff
                 datBufSiz = buflim - payloadOff
-            curr datBuf (min datBufSiz lim) >>= \next ->
+            getDynaNext curr datBuf (min datBufSiz lim) >>= \next ->
                 case next of
                     Next datPayloadLen reqflush mnext -> do
                         putStrLn $ "\n\nHTTP2 PROCESSING NEXT, payload len " ++ show datPayloadLen ++ "\n\n"
