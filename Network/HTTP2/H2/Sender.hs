@@ -183,6 +183,7 @@ frameSender
                         cws <- getConnectionWindowSize ctx -- not 0
                         let lim = min cws sws
                         (off', mout') <- output out off lim
+                        putStrLn $ "\n\nHTTP2 output isJust: " ++ show (isJust mout') ++ "\n\n"
                         getOutputSync sync mout'
                         return off'
 
