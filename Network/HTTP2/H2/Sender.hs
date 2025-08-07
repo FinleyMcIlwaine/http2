@@ -39,13 +39,17 @@ data Switch
     | O Output
     | Flush
 
-wrapException :: E.SomeException -> IO ()
-wrapException se
-    | isAsyncException se = E.throwIO se
-    | Just GoAwayIsSent <- E.fromException se = return ()
-    | Just ConnectionIsClosed <- E.fromException se = return ()
-    | Just (e :: HTTP2Error) <- E.fromException se = E.throwIO e
-    | otherwise = E.throwIO $ BadThingHappen se
+wrapException :: HasCallStack => E.SomeException -> IO ()
+wrapException se = do
+    putStrLn $ "\n\nHTTP2: WRAP EXCEPTION: " ++ prettyCallStack callStack ++ show se ++ "\n\n"
+    f
+ where
+    f
+        | isAsyncException se = E.throwIO se
+        | Just GoAwayIsSent <- E.fromException se = return ()
+        | Just ConnectionIsClosed <- E.fromException se = return ()
+        | Just (e :: HTTP2Error) <- E.fromException se = E.throwIO e
+        | otherwise = E.throwIO $ BadThingHappen se
 
 -- Peer SETTINGS_INITIAL_WINDOW_SIZE
 -- Adjusting initial window size for streams
@@ -78,11 +82,18 @@ frameSender
         ----------------------------------------------------------------
         loop :: Offset -> IO ()
         loop off = do
+            putStrLn "\n\nHTTP2: BEFORE DEQUEUE\n\n"
             x <- atomically $ dequeue off
             case x of
-                C ctl -> flushN off >> control ctl >> loop 0
-                O out -> outputAndSync out off >>= flushIfNecessary >>= loop
-                Flush -> flushN off >> loop 0
+                C ctl -> do
+                    putStrLn "\n\nHTTP2: AFTER DEQUEUE, C CASE\n\n"
+                    flushN off >> control ctl >> loop 0
+                O out -> do
+                    putStrLn "\n\nHTTP2: AFTER DEQUEUE, O CASE\n\n"
+                    outputAndSync out off >>= flushIfNecessary >>= loop
+                Flush -> do
+                    putStrLn "\n\nHTTP2: AFTER DEQUEUE, FLUSH CASE\n\n"
+                    flushN off >> loop 0
 
         -- Flush the connection buffer to the socket, where the first 'n' bytes of
         -- the buffer are filled.
