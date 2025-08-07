@@ -367,7 +367,9 @@ frameSender
                         flushN off'
                         putStrLn $ "\n\nHTTP2 FLUSHED " ++ show off' ++ "\n\n"
                         return (0, Just out')
-                    else return (off', Just out')
+                    else do
+                        putStrLn $ "\n\nHTTP2 NOT FLUSHING\n\n"
+                        return (off', Just out')
 
         ----------------------------------------------------------------
         pushPromise :: StreamId -> StreamId -> TokenHeaderList -> Offset -> IO Int
