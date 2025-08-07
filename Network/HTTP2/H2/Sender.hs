@@ -206,7 +206,7 @@ frameSender
             curr datBuf (min datBufSiz lim) >>= \next ->
                 case next of
                     Next datPayloadLen reqflush mnext -> do
-                        putStrLn $ "\n\nPROCESSING NEXT, payload len " ++ show datPayloadLen ++ "\n\n"
+                        putStrLn $ "\n\nHTTP2 PROCESSING NEXT, payload len " ++ show datPayloadLen ++ "\n\n"
                         NextTrailersMaker tlrmkr' <- runTrailersMaker tlrmkr datBuf datPayloadLen
                         fillDataHeader
                             strm
@@ -300,7 +300,7 @@ frameSender
             tlrmkr
             _
             reqflush = do
-                putStrLn "\n\nFILLDATAHEADER NOTHING\n\n"
+                putStrLn "\n\nHTTP2 FILLDATAHEADER NOTHING\n\n"
                 let buf = confWriteBuffer `plusPtr` off
                 (mtrailers, flag) <- do
                     Trailers trailers <- tlrmkr Nothing
@@ -337,7 +337,7 @@ frameSender
             tlrmkr
             out
             reqflush = do
-                putStrLn "\n\nFILLDATAHEADER JUST, PAYLOAD ZERO\n\n"
+                putStrLn "\n\nHTTP2 FILLDATAHEADER JUST, PAYLOAD ZERO\n\n"
                 let out' = out{outputType = ONext next tlrmkr}
                 if reqflush
                     then do
@@ -352,20 +352,20 @@ frameSender
             tlrmkr
             out
             reqflush = do
-                putStrLn "\n\nFILLDATAHEADER JUST, PAYLOAD N\n\n"
+                putStrLn "\n\nHTTP2 HTTP2 FILLDATAHEADER JUST, PAYLOAD N\n\n"
                 let buf = confWriteBuffer `plusPtr` off
                     off' = off + frameHeaderLength + datPayloadLen
                     flag = defaultFlags
-                putStrLn "\n\nFILL FRAME HEADER\n\n"
+                putStrLn "\n\nHTTP2 FILL FRAME HEADER\n\n"
                 fillFrameHeader FrameData datPayloadLen streamNumber flag buf
-                putStrLn "\n\nFILLED FRAME HEADER\n\n"
+                putStrLn "\n\nHTTP2 FILLED FRAME HEADER\n\n"
                 decreaseWindowSize ctx strm datPayloadLen
                 let out' = out{outputType = ONext next tlrmkr}
                 if reqflush
                     then do
-                        putStrLn $ "\n\nFLUSHING " ++ show off' ++ "\n\n"
+                        putStrLn $ "\n\nHTTP2 FLUSHING " ++ show off' ++ "\n\n"
                         flushN off'
-                        putStrLn $ "\n\nFLUSHED " ++ show off' ++ "\n\n"
+                        putStrLn $ "\n\nHTTP2 FLUSHED " ++ show off' ++ "\n\n"
                         return (0, Just out')
                     else return (off', Just out')
 

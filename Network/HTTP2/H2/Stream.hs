@@ -154,7 +154,8 @@ withOutBodyIface tbq unmask k = do
                         writeTVar terminated (Just StreamPushedFinal)
                         writeTBQueue tbq $ StreamingBuilder b (EndOfStream Nothing)
                         writeTBQueue tbq $ StreamingFinished Nothing
-                , outBodyFlush =
+                , outBodyFlush = do
+                    putStrLn "\n\nHTTP2 WRITING STREAMING FLUSH\n\n"
                     atomically $
                         whenNotTerminated $
                             writeTBQueue tbq StreamingFlush
