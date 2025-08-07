@@ -31,6 +31,7 @@ import Network.HTTP2.H2.StreamTable
 import Network.HTTP2.H2.Types
 import Network.HTTP2.H2.Window
 import GHC.Stack
+import GHC.Conc
 
 ----------------------------------------------------------------
 
@@ -121,7 +122,11 @@ frameSender
             if isEmptyC
                 then do
                     -- FLOW CONTROL: WINDOW_UPDATE 0: send: respecting peer's limit
+                    when (role == Server) $
+                        unsafeIOToSTM $ putStrLn "\n\nHTTP2: WAITING CONNECTION WINDOW SIZE\n\n"
                     waitConnectionWindowSize ctx
+                    when (role == Server) $
+                        unsafeIOToSTM $ putStrLn "\n\nHTTP2: CONNECTION WINDOW SIZE WAIT DONE\n\n"
                     isEmptyO <- isEmptyTQueue outputQ
                     if isEmptyO
                         then if off /= 0 then return Flush else retry
