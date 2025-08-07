@@ -20,6 +20,7 @@ import Network.HTTP2.H2.Context
 import Network.HTTP2.H2.Queue
 import Network.HTTP2.H2.Types
 import GHC.Stack
+import GHC.Conc
 
 syncWithSender
     :: HasCallStack => Context
@@ -125,7 +126,9 @@ checkLoop LoopCheck{..} = atomically $ do
         then return False
         else do
             waitStreaming' lcTBQ
+            unsafeIOToSTM $ putStrLn "\n\nHTTP2: before waitStreamWindowSizeSTM\n\n"
             waitStreamWindowSizeSTM lcWindow
+            unsafeIOToSTM $ putStrLn "\n\nHTTP2: after waitStreamWindowSizeSTM\n\n"
             return True
 
 waitStreaming' :: Maybe (TBQueue a) -> STM ()
