@@ -39,9 +39,10 @@ data Switch
     | O Output
     | Flush
 
-wrapException :: HasCallStack => E.SomeException -> IO ()
-wrapException se = do
-    putStrLn $ "\n\nHTTP2: WRAP EXCEPTION: " ++ prettyCallStack callStack ++ show se ++ "\n\n"
+wrapException :: HasCallStack => Role -> E.SomeException -> IO ()
+wrapException r se = do
+    when (r == Server) $
+        putStrLn $ "\n\nHTTP2: WRAP EXCEPTION: " ++ prettyCallStack callStack ++ show se ++ "\n\n"
     f
  where
     f
@@ -74,25 +75,29 @@ updatePeerSettings Context{peerSettings, oddStreamTable, evenStreamTable} peerAl
 
 frameSender :: Context -> Config -> IO ()
 frameSender
-    ctx@Context{outputQ, controlQ, encodeDynamicTable, outputBufferLimit, senderDone}
+    ctx@Context{role, outputQ, controlQ, encodeDynamicTable, outputBufferLimit, senderDone}
     Config{..} = do
         labelMe "H2 sender"
-        (loop 0 `E.finally` setSenderDone) `E.catch` wrapException
+        (loop 0 `E.finally` setSenderDone) `E.catch` (wrapException role)
       where
         ----------------------------------------------------------------
         loop :: Offset -> IO ()
         loop off = do
-            putStrLn "\n\nHTTP2: BEFORE DEQUEUE\n\n"
+            when (role == Server) $
+                putStrLn "\n\nHTTP2: BEFORE DEQUEUE\n\n"
             x <- atomically $ dequeue off
             case x of
                 C ctl -> do
-                    putStrLn "\n\nHTTP2: AFTER DEQUEUE, C CASE\n\n"
+                    when (role == Server) $
+                        putStrLn "\n\nHTTP2: AFTER DEQUEUE, C CASE\n\n"
                     flushN off >> control ctl >> loop 0
                 O out -> do
-                    putStrLn "\n\nHTTP2: AFTER DEQUEUE, O CASE\n\n"
+                    when (role == Server) $
+                        putStrLn "\n\nHTTP2: AFTER DEQUEUE, O CASE\n\n"
                     outputAndSync out off >>= flushIfNecessary >>= loop
                 Flush -> do
-                    putStrLn "\n\nHTTP2: AFTER DEQUEUE, FLUSH CASE\n\n"
+                    when (role == Server) $
+                        putStrLn "\n\nHTTP2: AFTER DEQUEUE, FLUSH CASE\n\n"
                     flushN off >> loop 0
 
         -- Flush the connection buffer to the socket, where the first 'n' bytes of
