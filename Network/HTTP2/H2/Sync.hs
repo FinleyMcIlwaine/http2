@@ -28,17 +28,28 @@ syncWithSender
     -> LoopCheck
     -> IO ()
 syncWithSender ctx@Context{..} strm otyp lc = do
+    putStrLn "\n\nHTTP2: SYNC WITH SENDER, MAKING OUTPUT\n\n"
     (pop, out) <- makeOutput strm otyp
+    putStrLn "\n\nHTTP2: SYNC WITH SENDER, MADE OUTPUT\n\n"
     enqueueOutput outputQ out
+    putStrLn "\n\nHTTP2: SYNC WITH SENDER, ENQUEUED OUTPUT\n\n"
     syncWithSender' ctx pop lc
 
 makeOutput :: Stream -> OutputType -> IO (IO Sync, Output)
 makeOutput strm otyp = do
     var <- newEmptyMVar
-    let push = OutputSync $ \mout -> case mout of
-            Nothing -> putMVar var Done
-            Just ot -> putMVar var $ Cont ot
-        pop = takeMVar var
+    let push = OutputSync $ \mout -> do
+            putStrLn "\n\nHTTP2: OutputSync from makeOutput\n\n"
+            case mout of
+                Nothing -> do
+                    putMVar var Done
+                Just ot -> do
+                    putMVar var $ Cont ot
+        pop = do
+            putStrLn "\n\nHTTP2: POPPING\n\n"
+            res <- takeMVar var
+            putStrLn "\n\nHTTP2: POPPED\n\n"
+            return res
         out =
             Output
                 { outputStream = strm
@@ -47,14 +58,16 @@ makeOutput strm otyp = do
                 }
     return (pop, out)
 
-makeOutputIO :: HasCallStack => Context -> Stream -> OutputType -> Output
+makeOutputIO :: Context -> Stream -> OutputType -> Output
 makeOutputIO Context{..} strm otyp = out
   where
-    push = OutputSync $ \mout -> case mout of
-        Nothing -> return ()
-        -- Sender enqueues output again ignoring
-        -- the stream TX window.
-        Just ot -> enqueueOutput outputQ ot
+    push = OutputSync $ \mout -> do
+        putStrLn "\n\nHTTP2: OutputSync from makeOutputIO\n\n"
+        case mout of
+            Nothing -> return ()
+            -- Sender enqueues output again ignoring
+            -- the stream TX window.
+            Just ot -> enqueueOutput outputQ ot
     out =
         Output
             { outputStream = strm
@@ -71,14 +84,22 @@ syncWithSender' :: HasCallStack => Context -> IO Sync -> LoopCheck -> IO ()
 syncWithSender' Context{..} pop lc = loop
   where
     loop = do
+        putStrLn "\n\nHTTP2: before pop\n\n"
         s <- pop
+        putStrLn "\n\nHTTP2: after pop\n\n"
         case s of
-            Done -> return ()
+            Done -> do
+                putStrLn "\n\nHTTP2: syncWithSender' Done case\n\n"
+                return ()
             Cont newout -> do
+                putStrLn "\n\nHTTP2: before checkLoop\n\n"
                 cont <- checkLoop lc
+                putStrLn $ "\n\nHTTP2: after checkLoop: cont = " ++ show cont ++ "\n\n"
                 when cont $ do
                     -- This is justified by the precondition above
+                    putStrLn "\n\nHTTP2: enqueueing in syncWithSender' \n\n"
                     enqueueOutput outputQ newout
+                    putStrLn "\n\nHTTP2: enqueued in syncWithSender'\n\n"
                     loop
 
 newLoopCheck :: Stream -> Maybe (TBQueue StreamingChunk) -> IO LoopCheck

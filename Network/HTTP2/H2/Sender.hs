@@ -185,6 +185,7 @@ frameSender
                         (off', mout') <- output out off lim
                         putStrLn $ "\n\nHTTP2 output isJust: " ++ show (isJust mout') ++ "\n\n"
                         getOutputSync sync mout'
+                        putStrLn $ "\n\nHTTP2 getOutputSync done\n\n"
                         return off'
 
         resetStream :: Stream -> ErrorCode -> E.SomeException -> IO ()
