@@ -19,9 +19,10 @@ import Network.HTTP.Semantics.IO
 import Network.HTTP2.H2.Context
 import Network.HTTP2.H2.Queue
 import Network.HTTP2.H2.Types
+import GHC.Stack
 
 syncWithSender
-    :: Context
+    :: HasCallStack => Context
     -> Stream
     -> OutputType
     -> LoopCheck
@@ -46,7 +47,7 @@ makeOutput strm otyp = do
                 }
     return (pop, out)
 
-makeOutputIO :: Context -> Stream -> OutputType -> Output
+makeOutputIO :: HasCallStack => Context -> Stream -> OutputType -> Output
 makeOutputIO Context{..} strm otyp = out
   where
     push mout = case mout of
@@ -61,12 +62,12 @@ makeOutputIO Context{..} strm otyp = out
             , outputSync = push
             }
 
-enqueueOutputSIO :: Context -> Stream -> OutputType -> IO ()
+enqueueOutputSIO :: HasCallStack => Context -> Stream -> OutputType -> IO ()
 enqueueOutputSIO ctx@Context{..} strm otyp = do
     let out = makeOutputIO ctx strm otyp
     enqueueOutput outputQ out
 
-syncWithSender' :: Context -> IO Sync -> LoopCheck -> IO ()
+syncWithSender' :: HasCallStack => Context -> IO Sync -> LoopCheck -> IO ()
 syncWithSender' Context{..} pop lc = loop
   where
     loop = do

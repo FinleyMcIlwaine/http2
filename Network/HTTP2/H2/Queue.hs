@@ -5,10 +5,13 @@ module Network.HTTP2.H2.Queue where
 import Control.Concurrent.STM
 
 import Network.HTTP2.H2.Types
+import GHC.Stack
 
 {-# INLINE enqueueOutput #-}
-enqueueOutput :: TQueue Output -> Output -> IO ()
-enqueueOutput outQ out = atomically $ writeTQueue outQ out
+enqueueOutput :: HasCallStack => TQueue Output -> Output -> IO ()
+enqueueOutput outQ out = do
+    putStrLn $ "\n\nHTTP2: enqueueOutput " ++ prettyCallStack callStack
+    atomically $ writeTQueue outQ out
 
 {-# INLINE enqueueOutputSTM #-}
 enqueueOutputSTM :: TQueue Output -> Output -> STM ()
