@@ -39,8 +39,10 @@ waitConnectionWindowSize Context{txFlow} = do
 
 increaseWindowSize :: StreamId -> TVar TxFlow -> WindowSize -> IO ()
 increaseWindowSize sid tvar n = do
+    putStrLn "\n\nHTTP2: increasing window size\n\n"
     atomically $ modifyTVar' tvar $ \flow -> flow{txfLimit = txfLimit flow + n}
     w <- txWindowSize <$> readTVarIO tvar
+    putStrLn $ "\n\nHTTP2: increased window size to " ++ show w ++ "\n\n"
     when (isWindowOverflow w) $ do
         let msg = fromString ("window update for stream " ++ show sid ++ " is overflow")
             err =
