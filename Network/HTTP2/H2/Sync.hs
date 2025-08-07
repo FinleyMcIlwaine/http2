@@ -35,7 +35,7 @@ syncWithSender ctx@Context{..} strm otyp lc = do
 makeOutput :: Stream -> OutputType -> IO (IO Sync, Output)
 makeOutput strm otyp = do
     var <- newEmptyMVar
-    let push mout = case mout of
+    let push = OutputSync $ \mout -> case mout of
             Nothing -> putMVar var Done
             Just ot -> putMVar var $ Cont ot
         pop = takeMVar var
@@ -50,7 +50,7 @@ makeOutput strm otyp = do
 makeOutputIO :: HasCallStack => Context -> Stream -> OutputType -> Output
 makeOutputIO Context{..} strm otyp = out
   where
-    push mout = case mout of
+    push = OutputSync $ \mout -> case mout of
         Nothing -> return ()
         -- Sender enqueues output again ignoring
         -- the stream TX window.

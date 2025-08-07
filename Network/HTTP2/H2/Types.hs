@@ -25,6 +25,7 @@ import qualified System.TimeManager as T
 import Imports
 import Network.HPACK
 import Network.HTTP2.Frame
+import GHC.Stack
 
 ----------------------------------------------------------------
 
@@ -183,8 +184,13 @@ instance Show Stream where
 data Output = Output
     { outputStream :: Stream
     , outputType :: OutputType
-    , outputSync :: Maybe Output -> IO ()
+    , outputSync :: OutputSync
     }
+
+newtype OutputSync = OutputSync { _outputSync :: HasCallStack => Maybe Output -> IO () }
+
+getOutputSync :: HasCallStack => OutputSync -> Maybe Output -> IO ()
+getOutputSync os mo = _outputSync os mo
 
 data OutputType
     = OHeader [Header] (Maybe DynaNext) TrailersMaker
