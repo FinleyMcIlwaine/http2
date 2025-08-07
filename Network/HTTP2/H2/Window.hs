@@ -61,6 +61,8 @@ decreaseWindowSize :: Context -> Stream -> WindowSize -> IO ()
 decreaseWindowSize Context{txFlow} Stream{streamTxFlow} siz = do
     dec txFlow
     dec streamTxFlow
+    readTVarIO txFlow >>= \s -> putStrLn ("\n\nHTTP2 TX FLOW SIZE: " ++ show s ++ "\n\n")
+    readTVarIO streamTxFlow >>= \s -> putStrLn ("\n\nHTTP2 STREAM TX FLOW SIZE: " ++ show s ++ "\n\n")
   where
     dec tvar = atomically $ modifyTVar' tvar $ \flow -> flow{txfSent = txfSent flow + siz}
 
