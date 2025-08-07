@@ -3,6 +3,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module Network.HTTP2.H2.Stream where
 
@@ -55,7 +56,7 @@ newOddStream sid txwin rxwin =
     Stream sid
         <$> newIORef Idle
         <*> newEmptyMVar
-        <*> newTVarIO (newTxFlow txwin)
+        <*> newTxFlow' txwin
         <*> newIORef (newRxFlow rxwin)
         <*> newIORef Nothing
 
@@ -67,6 +68,16 @@ newEvenStream sid txwin rxwin =
         <*> newTVarIO (newTxFlow txwin)
         <*> newIORef (newRxFlow rxwin)
         <*> newIORef Nothing
+
+newTxFlow' :: WindowSize -> IO (TVar TxFlow)
+newTxFlow' ws = do
+    flow <- newTVarIO $ newTxFlow ws
+    void $ forkIO $ do
+        threadDelay 60_000_000
+        putStrLn "\n\nHTTP2: INCREMENTING TX FLOW\n\n"
+        atomically $ modifyTVar' flow $ \flw -> flw{txfLimit = txfLimit flw + 16 * 1024}
+        putStrLn "\n\nHTTP2: INCREMENTED TX FLOW\n\n"
+    return flow
 
 ----------------------------------------------------------------
 
