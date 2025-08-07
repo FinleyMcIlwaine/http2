@@ -78,7 +78,7 @@ frameSender
     ctx@Context{role, outputQ, controlQ, encodeDynamicTable, outputBufferLimit, senderDone}
     Config{..} = do
         labelMe "H2 sender"
-        (loop 0 `E.finally` setSenderDone) `E.catch` (wrapException role)
+        (loop 0 `E.finally` setSenderDone) `E.catch` wrapException role
       where
         ----------------------------------------------------------------
         loop :: Offset -> IO ()
@@ -418,4 +418,6 @@ frameSender
                     , streamId = sid
                     }
 
-        setSenderDone = atomically $ writeTVar senderDone True
+        setSenderDone = do
+            putStrLn "\n\nHTTP2: SETTING SENDER DONE\n\n"
+            atomically $ writeTVar senderDone True
