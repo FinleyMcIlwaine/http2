@@ -18,7 +18,6 @@ import qualified Data.ByteString.UTF8 as UTF8
 import Data.IORef
 import Network.Control
 import Network.HTTP.Semantics
-import qualified System.ThreadManager as T
 
 import Imports hiding (delete, insert)
 import Network.HTTP2.Frame
@@ -59,11 +58,9 @@ frameReceiver ctx@Context{..} conf@Config{..} = do
 
     sendGoaway se
         | isAsyncException se = E.throwIO se
-        | Just GoAwayIsSent <- E.fromException se = do
-            T.waitUntilAllGone threadManager
+        | Just GoAwayIsSent <- E.fromException se =
             enqueueControl controlQ $ CFinish GoAwayIsSent
-        | Just ConnectionIsClosed <- E.fromException se = do
-            T.waitUntilAllGone threadManager
+        | Just ConnectionIsClosed <- E.fromException se =
             enqueueControl controlQ $ CFinish ConnectionIsClosed
         | Just e@(ConnectionErrorIsReceived _ _ _) <- E.fromException se =
             enqueueControl controlQ $ CFinish e
